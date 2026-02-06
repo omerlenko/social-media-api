@@ -27,7 +27,9 @@ class Profile(models.Model):
     first_name = models.CharField(max_length=50)
     last_name = models.CharField(max_length=50)
     bio = models.TextField(blank=True, max_length=1000)
-    profile_picture = models.ImageField(null=True, upload_to=create_custom_path)
+    profile_picture = models.ImageField(
+        null=True, blank=True, upload_to=create_custom_path
+    )
 
     @property
     def full_name(self):
