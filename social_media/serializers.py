@@ -7,7 +7,7 @@ from social_media.models import Profile
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = get_user_model()
-        fields = ("id", "username", "email", "password")
+        fields = ("id", "email", "username", "password")
         extra_kwargs = {
             "password": {
                 "write_only": True,
@@ -27,24 +27,15 @@ class UserSerializer(serializers.ModelSerializer):
         if password:
             user.set_password(password)
             user.save()
-
         return user
 
 
-class ProfileSerializer(serializers.ModelSerializer):
-    user = serializers.PrimaryKeyRelatedField(many=False, read_only=True)
+class UserUpdateSerializer(UserSerializer):
+    email = serializers.EmailField(read_only=True)
 
+
+class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ("id", "user", "first_name", "last_name", "bio", "profile_picture")
-
-    def validate(self, attrs):
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-
-        if self.instance is None and Profile.objects.filter(user=user).exists():
-            raise serializers.ValidationError(
-                {"user": "Profile already exists for this user."}
-            )
-
-        return attrs
+        read_only_fields = ("user",)
