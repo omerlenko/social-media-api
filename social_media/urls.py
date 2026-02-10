@@ -7,6 +7,7 @@ from social_media.views import (
     ManageProfileView,
     CreateUserView,
     CreateProfileView,
+    LogoutView,
 )
 
 router = routers.DefaultRouter()
@@ -16,6 +17,7 @@ urlpatterns = [
     path("auth/register/", CreateUserView.as_view(), name="create_user"),
     path("auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("auth/logout/", LogoutView.as_view(), name="token_logout"),
     path("users/me/", ManageUserView.as_view(), name="manage_user"),
     path("profiles/create/", CreateProfileView.as_view(), name="create_profile"),
     path("profiles/me/", ManageProfileView.as_view(), name="manage_profile"),

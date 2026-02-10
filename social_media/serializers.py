@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from social_media.models import Profile
 
@@ -32,6 +34,33 @@ class UserSerializer(serializers.ModelSerializer):
 
 class UserUpdateSerializer(UserSerializer):
     email = serializers.EmailField(read_only=True)
+
+
+class LogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is None:
+            raise serializers.ValidationError("Request context is required.")
+        return attrs
+
+    def save(self, **kwargs):
+        refresh_token = self.validated_data["refresh"]
+
+        try:
+            token = RefreshToken(refresh_token)
+
+            request = self.context["request"]
+            if int(token.get("user_id")) != request.user.id:
+                raise serializers.ValidationError(
+                    {"refresh": "Token does not belong to this user."}
+                )
+
+            token.blacklist()
+
+        except TokenError:
+            raise serializers.ValidationError({"refresh": "Invalid or expired token."})
 
 
 class ProfileSerializer(serializers.ModelSerializer):

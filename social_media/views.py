@@ -1,12 +1,15 @@
 from rest_framework import viewsets, generics, status
 from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from social_media.models import Profile
 from social_media.serializers import (
     UserSerializer,
     ProfileSerializer,
     UserUpdateSerializer,
+    LogoutSerializer,
 )
 
 
@@ -26,6 +29,19 @@ class ManageUserView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class LogoutView(APIView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = LogoutSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(status=status.HTTP_205_RESET_CONTENT)
 
 
 class CreateProfileView(generics.CreateAPIView):
