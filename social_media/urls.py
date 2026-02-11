@@ -8,9 +8,11 @@ from social_media.views import (
     CreateUserView,
     CreateProfileView,
     LogoutView,
+    UserViewSet,
 )
 
 router = routers.DefaultRouter()
+router.register("users", UserViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),
