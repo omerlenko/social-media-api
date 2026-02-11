@@ -68,3 +68,38 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ("id", "user", "first_name", "last_name", "bio", "profile_picture")
         read_only_fields = ("user",)
+
+
+class ProfileDetailSerializer(ProfileSerializer):
+    class Meta:
+        model = Profile
+        fields = ("id", "first_name", "last_name", "bio", "profile_picture")
+
+
+class UserListSerializer(serializers.ModelSerializer):
+    profile_picture = serializers.SerializerMethodField()
+
+    class Meta:
+        model = get_user_model()
+        fields = ("username", "profile_picture")
+
+    def get_profile_picture(self, obj):
+        profile = getattr(obj, "profile", None)
+        if not profile:
+            return None
+
+        profile_picture = profile.profile_picture
+        if not profile_picture:
+            return None
+
+        request = self.context.get("request")
+        url = profile_picture.url
+        return request.build_absolute_uri(url) if request else url
+
+
+class UserDetailSerializer(serializers.ModelSerializer):
+    profile = ProfileDetailSerializer(many=False, read_only=True)
+
+    class Meta:
+        model = get_user_model()
+        fields = ("username", "profile")
