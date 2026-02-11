@@ -1,4 +1,5 @@
-from rest_framework import viewsets, generics, status
+from django.contrib.auth import get_user_model
+from rest_framework import viewsets, generics, status, mixins
 from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -10,6 +11,8 @@ from social_media.serializers import (
     ProfileSerializer,
     UserUpdateSerializer,
     LogoutSerializer,
+    UserListSerializer,
+    UserDetailSerializer,
 )
 
 
@@ -29,6 +32,30 @@ class ManageUserView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class UserViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
+    queryset = get_user_model().objects.select_related("profile")
+    permission_classes = (IsAuthenticated,)
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return UserListSerializer
+        if self.action == "retrieve":
+            return UserDetailSerializer
+
+    def get_queryset(self):
+        queryset = self.queryset
+
+        if self.action == "list":
+            username = self.request.query_params.get("username")
+
+            if username:
+                queryset = queryset.filter(username__icontains=username)
+
+        return queryset.distinct()
 
 
 class LogoutView(APIView):
