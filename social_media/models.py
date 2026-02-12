@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models import Q, F
 from django.utils.text import slugify
 
 
@@ -73,3 +74,25 @@ class Profile(models.Model):
 
     def __str__(self):
         return self.full_name
+
+
+class Follow(models.Model):
+    follower = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="following"
+    )
+    followee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="followers"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["follower", "followee"], name="unique_follow"
+            ),
+            models.CheckConstraint(
+                condition=~Q(follower=F("followee")), name="no_self_follow"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Follower: {self.follower}, Followee: {self.followee}"
