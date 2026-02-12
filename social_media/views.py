@@ -1,11 +1,14 @@
 from django.contrib.auth import get_user_model
+from django.db.models.aggregates import Count
 from rest_framework import viewsets, generics, status, mixins
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.status import HTTP_200_OK, HTTP_201_CREATED
 from rest_framework.views import APIView
 
-from social_media.models import Profile
+from social_media.models import Profile, Follow
 from social_media.serializers import (
     UserSerializer,
     ProfileSerializer,
@@ -13,6 +16,8 @@ from social_media.serializers import (
     LogoutSerializer,
     UserListSerializer,
     UserDetailSerializer,
+    FollowDetailSerializer,
+    EmptySerializer,
 )
 
 
@@ -35,9 +40,13 @@ class ManageUserView(generics.RetrieveUpdateAPIView):
 
 
 class UserViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
 ):
-    queryset = get_user_model().objects.select_related("profile")
+    queryset = get_user_model().objects.select_related(
+        "profile",
+    )
     permission_classes = (IsAuthenticated,)
 
     def get_serializer_class(self):
@@ -45,6 +54,9 @@ class UserViewSet(
             return UserListSerializer
         if self.action == "retrieve":
             return UserDetailSerializer
+        if self.action == "follow":
+            return EmptySerializer
+        return UserListSerializer
 
     def get_queryset(self):
         queryset = self.queryset
@@ -55,7 +67,62 @@ class UserViewSet(
             if username:
                 queryset = queryset.filter(username__icontains=username)
 
+        if self.action == "retrieve":
+            queryset = queryset.annotate(
+                followers_count=Count("followers", distinct=True)
+            ).annotate(following_count=Count("following", distinct=True))
+
         return queryset.distinct()
+
+    @action(detail=True, methods=["POST", "DELETE"])
+    def follow(self, request, *args, **kwargs):
+        user = self.get_object()
+
+        if request.method == "POST":
+            if request.user == user:
+                raise ValidationError({"detail": "You can not follow yourself."})
+
+            follow, created = Follow.objects.get_or_create(
+                follower=request.user, followee=user
+            )
+            serializer = FollowDetailSerializer(follow, context={"request": request})
+
+            return Response(
+                serializer.data,
+                status=HTTP_201_CREATED if created else status.HTTP_200_OK,
+            )
+
+        if request.method == "DELETE":
+            Follow.objects.filter(follower=request.user, followee=user).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["GET"])
+    def followers(self, request, *args, **kwargs):
+        user = self.get_object()
+        followers = (
+            get_user_model()
+            .objects.select_related("profile")
+            .filter(following__followee=user)
+            .distinct()
+        )
+        serializer = UserListSerializer(
+            followers, many=True, context={"request": request}
+        )
+        return Response(serializer.data, status=HTTP_200_OK)
+
+    @action(detail=True, methods=["GET"])
+    def following(self, request, *args, **kwargs):
+        user = self.get_object()
+        following = (
+            get_user_model()
+            .objects.select_related("profile")
+            .filter(followers__follower=user)
+            .distinct()
+        )
+        serializer = UserListSerializer(
+            following, many=True, context={"request": request}
+        )
+        return Response(serializer.data, status=HTTP_200_OK)
 
 
 class LogoutView(APIView):
