@@ -3,7 +3,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from social_media.models import Profile
+from social_media.models import Profile, Follow
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -34,6 +34,10 @@ class UserSerializer(serializers.ModelSerializer):
 
 class UserUpdateSerializer(UserSerializer):
     email = serializers.EmailField(read_only=True)
+
+
+class EmptySerializer(serializers.Serializer):
+    pass
 
 
 class LogoutSerializer(serializers.Serializer):
@@ -77,11 +81,11 @@ class ProfileDetailSerializer(ProfileSerializer):
 
 
 class UserListSerializer(serializers.ModelSerializer):
-    profile_picture = serializers.SerializerMethodField()
+    profile_picture = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = get_user_model()
-        fields = ("username", "profile_picture")
+        fields = ("id", "username", "profile_picture")
 
     def get_profile_picture(self, obj):
         profile = getattr(obj, "profile", None)
@@ -99,7 +103,49 @@ class UserListSerializer(serializers.ModelSerializer):
 
 class UserDetailSerializer(serializers.ModelSerializer):
     profile = ProfileDetailSerializer(many=False, read_only=True)
+    followers_count = serializers.IntegerField(read_only=True)
+    following_count = serializers.IntegerField(read_only=True)
+    is_following = serializers.SerializerMethodField(read_only=True)
+    is_followed_by = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = get_user_model()
-        fields = ("username", "profile")
+        fields = (
+            "id",
+            "username",
+            "profile",
+            "followers_count",
+            "following_count",
+            "is_following",
+            "is_followed_by",
+        )
+
+    def get_is_following(self, obj):
+        request = self.context.get("request")
+        if request is None:
+            return False
+
+        return Follow.objects.filter(follower=request.user, followee=obj).exists()
+
+    def get_is_followed_by(self, obj):
+        request = self.context.get("request")
+        if request is None:
+            return False
+
+        return Follow.objects.filter(follower=obj, followee=request.user).exists()
+
+
+class FollowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Follow
+        fields = ("follower", "followee")
+        read_only_fields = ("follower", "followee")
+
+
+class FollowDetailSerializer(FollowSerializer):
+    follower = serializers.SlugRelatedField(
+        read_only=True, many=False, slug_field="username"
+    )
+    followee = serializers.SlugRelatedField(
+        read_only=True, many=False, slug_field="username"
+    )
