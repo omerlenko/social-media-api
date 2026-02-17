@@ -145,7 +145,7 @@ class Migration(migrations.Migration):
                 (
                     "profile_picture",
                     models.ImageField(
-                        null=True, upload_to=social_media.models.create_custom_path
+                        null=True, upload_to=social_media.models.upload_profile_pictures
                     ),
                 ),
                 (

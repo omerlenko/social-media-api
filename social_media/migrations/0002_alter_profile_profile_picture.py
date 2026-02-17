@@ -15,7 +15,9 @@ class Migration(migrations.Migration):
             model_name="profile",
             name="profile_picture",
             field=models.ImageField(
-                blank=True, null=True, upload_to=social_media.models.create_custom_path
+                blank=True,
+                null=True,
+                upload_to=social_media.models.upload_profile_pictures,
             ),
         ),
     ]

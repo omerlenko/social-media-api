@@ -6,7 +6,6 @@ from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import Q, F
-from django.utils.text import slugify
 
 
 class UserManager(BaseUserManager):
@@ -51,12 +50,9 @@ class User(AbstractUser):
         return f"{self.username} ({self.email})"
 
 
-def create_custom_path(instance, filename: str) -> str:
-    root, extension = os.path.splitext(filename)
-    return os.path.join(
-        "uploads/profile_pictures/",
-        f"{slugify(instance.user.id)}-{uuid.uuid4()}{extension}",
-    )
+def upload_profile_pictures(instance, filename: str) -> str:
+    _, ext = os.path.splitext(filename)
+    return f"uploads/profile_pictures/{uuid.uuid4()}{ext.lower()}"
 
 
 class Profile(models.Model):
@@ -65,7 +61,7 @@ class Profile(models.Model):
     last_name = models.CharField(max_length=50)
     bio = models.TextField(blank=True, max_length=1000)
     profile_picture = models.ImageField(
-        null=True, blank=True, upload_to=create_custom_path
+        null=True, blank=True, upload_to=upload_profile_pictures
     )
 
     @property
@@ -96,3 +92,32 @@ class Follow(models.Model):
 
     def __str__(self):
         return f"Follower: {self.follower}, Followee: {self.followee}"
+
+
+class Hashtag(models.Model):
+    text = models.CharField(unique=True, max_length=50)
+
+    def __str__(self):
+        return "#" + self.text
+
+
+class Post(models.Model):
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="posts"
+    )
+    text = models.TextField(max_length=1000)
+    created_at = models.DateTimeField(auto_now_add=True)
+    hashtags = models.ManyToManyField(Hashtag, related_name="posts", blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+def upload_post_media(instance, filename: str) -> str:
+    _, ext = os.path.splitext(filename)
+    return f"uploads/post_media/{uuid.uuid4()}{ext.lower()}"
+
+
+class PostMedia(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="media")
+    file = models.ImageField(upload_to=upload_post_media)
