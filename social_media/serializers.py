@@ -1,9 +1,10 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from social_media.models import Profile, Follow
+from social_media.models import Profile, Follow, Post, PostMedia, Hashtag
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -149,3 +150,82 @@ class FollowDetailSerializer(FollowSerializer):
     followee = serializers.SlugRelatedField(
         read_only=True, many=False, slug_field="username"
     )
+
+
+class PostMediaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PostMedia
+        fields = ("id", "file")
+
+
+class HashtagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Hashtag
+        fields = ("id", "text")
+        extra_kwargs = {"text": {"validators": []}}
+
+    def validate_text(self, text):
+        text = text.strip().lower().lstrip("#").replace(" ", "")
+        if text == "":
+            raise serializers.ValidationError("Hashtag text cannot be empty.")
+        return text
+
+
+class HashtagListSerializer(HashtagSerializer):
+    text = serializers.SerializerMethodField(read_only=True)
+
+    def get_text(self, obj):
+        return "#" + obj.text
+
+
+class PostSerializer(serializers.ModelSerializer):
+    author = serializers.SlugRelatedField(
+        read_only=True, many=False, slug_field="username"
+    )
+    media = PostMediaSerializer(many=True, read_only=True)
+    hashtags = HashtagSerializer(many=True, required=False)
+
+    class Meta:
+        model = Post
+        fields = ("id", "author", "text", "created_at", "media", "hashtags")
+        read_only_fields = ("author", "created_at")
+
+    def _resolve_tags(self, hashtags_data):
+        seen = set()
+        tags = []
+
+        for hashtag in hashtags_data:
+            text = hashtag["text"]
+            if text in seen:
+                continue
+            seen.add(text)
+
+            tag, _ = Hashtag.objects.get_or_create(text=text)
+            tags.append(tag)
+
+        return tags
+
+    def create(self, validated_data):
+        with transaction.atomic():
+            hashtags_data = validated_data.pop("hashtags", [])
+            post = Post.objects.create(**validated_data)
+
+            tags = self._resolve_tags(hashtags_data)
+            post.hashtags.set(tags)
+
+            return post
+
+    def update(self, instance, validated_data):
+        hashtags_data = validated_data.pop("hashtags", None)
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
+
+            if hashtags_data is not None:
+                tags = self._resolve_tags(hashtags_data)
+                instance.hashtags.set(tags)
+
+        return instance
+
+
+class PostReadSerializer(PostSerializer):
+    hashtags = HashtagListSerializer(many=True, read_only=True)
