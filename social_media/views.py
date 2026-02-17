@@ -3,12 +3,13 @@ from django.db.models.aggregates import Count
 from rest_framework import viewsets, generics, status, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotFound
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, SAFE_METHODS
 from rest_framework.response import Response
 from rest_framework.status import HTTP_200_OK, HTTP_201_CREATED
 from rest_framework.views import APIView
 
-from social_media.models import Profile, Follow
+from social_media.models import Profile, Follow, Post, PostMedia, Hashtag
+from social_media.permissions import IsOwnerOrReadOnly
 from social_media.serializers import (
     UserSerializer,
     ProfileSerializer,
@@ -18,6 +19,9 @@ from social_media.serializers import (
     UserDetailSerializer,
     FollowDetailSerializer,
     EmptySerializer,
+    PostSerializer,
+    PostMediaSerializer,
+    PostReadSerializer,
 )
 
 
@@ -161,3 +165,68 @@ class ManageProfileView(generics.RetrieveUpdateAPIView):
         except Profile.DoesNotExist:
             raise NotFound("The profile wasn't created for this user yet.")
         return profile
+
+
+class PostViewSet(viewsets.ModelViewSet):
+    queryset = Post.objects.select_related("author").prefetch_related(
+        "media", "hashtags"
+    )
+    serializer_class = PostSerializer
+    permission_classes = (
+        IsAuthenticated,
+        IsOwnerOrReadOnly,
+    )
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+
+    def get_queryset(self):
+        queryset = self.queryset
+
+        user = self.request.user
+        following = (
+            get_user_model()
+            .objects.filter(followers__follower=user)
+            .values_list("id", flat=True)
+        )
+        authors_ids = [user.id] + list(following)
+        queryset = queryset.filter(author__id__in=authors_ids)
+
+        hashtags = self.request.query_params.get("hashtags")
+
+        if hashtags:
+            tags = [
+                tag.strip().lower().lstrip("#").replace(" ", "")
+                for tag in hashtags.split(",")
+            ]
+            queryset = queryset.filter(hashtags__text__in=tags).distinct()
+
+        return queryset
+
+    def get_serializer_class(self):
+        if self.action in ("list", "retrieve"):
+            return PostReadSerializer
+
+        return self.serializer_class
+
+    @action(detail=True, methods=["POST"], serializer_class=PostMediaSerializer)
+    def media(self, request, *args, **kwargs):
+        post = self.get_object()
+
+        files_list = request.FILES.getlist("file")
+        if not files_list:
+            raise ValidationError({"file": "No files were provided."})
+        if len(files_list) > 10:
+            raise ValidationError(
+                {"detail": "You can only attach up to 10 files to a post."}
+            )
+
+        created_objects = []
+        for file in files_list:
+            obj = PostMedia.objects.create(post=post, file=file)
+            created_objects.append(obj)
+
+        serializer = PostMediaSerializer(
+            created_objects, many=True, context={"request": request}
+        )
+        return Response(serializer.data, status=HTTP_201_CREATED)
