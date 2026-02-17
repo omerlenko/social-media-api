@@ -9,10 +9,12 @@ from social_media.views import (
     CreateProfileView,
     LogoutView,
     UserViewSet,
+    PostViewSet,
 )
 
 router = routers.DefaultRouter()
 router.register("users", UserViewSet)
+router.register("posts", PostViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),
