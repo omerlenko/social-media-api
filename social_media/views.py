@@ -1,14 +1,15 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Exists, OuterRef
 from django.db.models.aggregates import Count
 from rest_framework import viewsets, generics, status, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotFound
-from rest_framework.permissions import AllowAny, IsAuthenticated, SAFE_METHODS
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.status import HTTP_200_OK, HTTP_201_CREATED
+from rest_framework.status import HTTP_200_OK, HTTP_201_CREATED, HTTP_204_NO_CONTENT
 from rest_framework.views import APIView
 
-from social_media.models import Profile, Follow, Post, PostMedia, Hashtag
+from social_media.models import Profile, Follow, Post, PostMedia, Like, Comment
 from social_media.permissions import IsOwnerOrReadOnly
 from social_media.serializers import (
     UserSerializer,
@@ -22,6 +23,8 @@ from social_media.serializers import (
     PostSerializer,
     PostMediaSerializer,
     PostReadSerializer,
+    LikeSerializer,
+    CommentSerializer,
 )
 
 
@@ -183,6 +186,7 @@ class PostViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = self.queryset
 
+        # scoping
         user = self.request.user
         following = (
             get_user_model()
@@ -192,6 +196,7 @@ class PostViewSet(viewsets.ModelViewSet):
         authors_ids = [user.id] + list(following)
         queryset = queryset.filter(author__id__in=authors_ids)
 
+        # hashtag filtering
         hashtags = self.request.query_params.get("hashtags")
 
         if hashtags:
@@ -201,11 +206,27 @@ class PostViewSet(viewsets.ModelViewSet):
             ]
             queryset = queryset.filter(hashtags__text__in=tags).distinct()
 
-        return queryset
+        # annotation
+        if self.action in ("list", "retrieve", "liked"):
+            like_exists = Like.objects.filter(user=user, post_id=OuterRef("pk"))
+
+            queryset = (
+                queryset.annotate(
+                    likes_count=Count("likes", distinct=True),
+                )
+                .annotate(
+                    comments_count=Count("comments", distinct=True),
+                )
+                .annotate(is_liked=Exists(like_exists))
+            )
+
+        return queryset.order_by("-created_at")
 
     def get_serializer_class(self):
         if self.action in ("list", "retrieve"):
             return PostReadSerializer
+        if self.action == "like":
+            return EmptySerializer
 
         return self.serializer_class
 
@@ -230,3 +251,85 @@ class PostViewSet(viewsets.ModelViewSet):
             created_objects, many=True, context={"request": request}
         )
         return Response(serializer.data, status=HTTP_201_CREATED)
+
+    @action(
+        detail=True, methods=["POST", "DELETE"], permission_classes=(IsAuthenticated,)
+    )
+    def like(self, request, *args, **kwargs):
+        post = self.get_object()
+
+        if request.method == "POST":
+            like, created = Like.objects.get_or_create(
+                user=self.request.user, post=post
+            )
+            serializer = LikeSerializer(like)
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED if created else HTTP_200_OK,
+            )
+
+        if request.method == "DELETE":
+            Like.objects.filter(user=self.request.user, post=post).delete()
+            return Response(status=HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["GET"])
+    def liked(self, request, *args, **kwargs):
+        user = request.user
+
+        liked_posts = self.get_queryset().filter(likes__user=user).distinct()
+        serializer = PostReadSerializer(
+            liked_posts, many=True, context={"request": request}
+        )
+
+        return Response(serializer.data, status=HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["GET", "POST"],
+        serializer_class=CommentSerializer,
+        permission_classes=(IsAuthenticated,),
+    )
+    def comments(self, request, *args, **kwargs):
+        post = self.get_object()
+        if request.method == "GET":
+            comments = (
+                Comment.objects.select_related("author")
+                .filter(post=post)
+                .order_by("-created_at")
+            )
+            serializer = self.get_serializer(comments, many=True)
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        if request.method == "POST":
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(author=request.user, post=post)
+
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class CommentViewSet(
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    queryset = Comment.objects.all()
+    serializer_class = CommentSerializer
+    permission_classes = (IsAuthenticated, IsOwnerOrReadOnly)
+
+    def get_queryset(self):
+        queryset = self.queryset
+        user = self.request.user
+
+        following = (
+            get_user_model()
+            .objects.filter(followers__follower=user)
+            .values_list("id", flat=True)
+        )
+        authors_ids = [user.id] + list(following)
+        queryset = queryset.filter(post__author__id__in=authors_ids)
+
+        return queryset
