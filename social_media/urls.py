@@ -10,12 +10,13 @@ from social_media.views import (
     LogoutView,
     UserViewSet,
     PostViewSet,
+    CommentViewSet,
 )
 
 router = routers.DefaultRouter()
 router.register("users", UserViewSet)
 router.register("posts", PostViewSet)
-
+router.register("comments", CommentViewSet)
 urlpatterns = [
     path("", include(router.urls)),
     path("auth/register/", CreateUserView.as_view(), name="create_user"),
