@@ -4,7 +4,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from social_media.models import Profile, Follow, Post, PostMedia, Hashtag
+from social_media.models import Profile, Follow, Post, PostMedia, Hashtag, Like, Comment
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -178,17 +178,47 @@ class HashtagListSerializer(HashtagSerializer):
         return "#" + obj.text
 
 
+class CommentSerializer(serializers.ModelSerializer):
+    author = serializers.SlugRelatedField(
+        read_only=True, many=False, slug_field="username"
+    )
+
+    class Meta:
+        model = Comment
+        fields = ("id", "author", "post", "text", "created_at")
+        read_only_fields = ("author", "post", "created_at")
+
+
 class PostSerializer(serializers.ModelSerializer):
     author = serializers.SlugRelatedField(
         read_only=True, many=False, slug_field="username"
     )
     media = PostMediaSerializer(many=True, read_only=True)
     hashtags = HashtagSerializer(many=True, required=False)
+    likes_count = serializers.IntegerField(read_only=True)
+    is_liked = serializers.BooleanField(read_only=True)
+    comments_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Post
-        fields = ("id", "author", "text", "created_at", "media", "hashtags")
-        read_only_fields = ("author", "created_at")
+        fields = (
+            "id",
+            "author",
+            "text",
+            "created_at",
+            "media",
+            "likes_count",
+            "is_liked",
+            "comments_count",
+            "hashtags",
+        )
+        read_only_fields = (
+            "author",
+            "created_at",
+            "likes_count",
+            "is_liked",
+            "comments_count",
+        )
 
     def _resolve_tags(self, hashtags_data):
         seen = set()
@@ -229,3 +259,10 @@ class PostSerializer(serializers.ModelSerializer):
 
 class PostReadSerializer(PostSerializer):
     hashtags = HashtagListSerializer(many=True, read_only=True)
+
+
+class LikeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Like
+        fields = ("id", "user", "post")
+        read_only_fields = ("user", "post")
