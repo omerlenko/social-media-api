@@ -1,11 +1,13 @@
 import os
 import uuid
+from django.utils import timezone
 
 from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import Q, F
+from rest_framework.exceptions import ValidationError
 
 
 class UserManager(BaseUserManager):
@@ -102,15 +104,49 @@ class Hashtag(models.Model):
 
 
 class Post(models.Model):
+    class Status(models.TextChoices):
+        SCHEDULED = "SCH", "Scheduled"
+        PUBLISHED = "PUB", "Published"
+
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="posts"
     )
     text = models.TextField(max_length=1000)
-    created_at = models.DateTimeField(auto_now_add=True)
     hashtags = models.ManyToManyField(Hashtag, related_name="posts", blank=True)
+    status = models.CharField(
+        max_length=3, choices=Status.choices, default=Status.PUBLISHED
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    scheduled_for = models.DateTimeField(blank=True, null=True)
+    published_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+    def clean(self):
+        if self.status == self.Status.SCHEDULED:
+            if self.scheduled_for is None:
+                raise ValidationError("Post must have scheduled_for to be scheduled.")
+            if self.scheduled_for <= timezone.now():
+                raise ValidationError("Scheduled time must be in the future.")
+            if self.published_at is not None:
+                raise ValidationError(
+                    "Post can't have published_at when it's scheduled."
+                )
+
+        elif self.status == self.Status.PUBLISHED:
+            if self.published_at is None:
+                raise ValidationError("Post must have published_at to be published.")
+            if self.scheduled_for is not None:
+                raise ValidationError(
+                    "Post can't have scheduled_for when it's published."
+                )
+            if self.published_at > timezone.now():
+                raise ValidationError("The published_at field cannot be in the future.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 def upload_post_media(instance, filename: str) -> str:
