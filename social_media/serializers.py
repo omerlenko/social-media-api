@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -205,19 +206,24 @@ class PostSerializer(serializers.ModelSerializer):
             "id",
             "author",
             "text",
-            "created_at",
             "media",
             "likes_count",
             "is_liked",
             "comments_count",
             "hashtags",
+            "status",
+            "scheduled_for",
+            "created_at",
+            "published_at",
         )
         read_only_fields = (
             "author",
-            "created_at",
             "likes_count",
             "is_liked",
             "comments_count",
+            "status",
+            "created_at",
+            "published_at",
         )
 
     def _resolve_tags(self, hashtags_data):
@@ -238,7 +244,14 @@ class PostSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         with transaction.atomic():
             hashtags_data = validated_data.pop("hashtags", [])
-            post = Post.objects.create(**validated_data)
+            if validated_data.get("scheduled_for"):
+                post = Post.objects.create(
+                    status=Post.Status.SCHEDULED, **validated_data
+                )
+            else:
+                post = Post.objects.create(
+                    published_at=timezone.now(), **validated_data
+                )
 
             tags = self._resolve_tags(hashtags_data)
             post.hashtags.set(tags)
@@ -259,6 +272,27 @@ class PostSerializer(serializers.ModelSerializer):
 
 class PostReadSerializer(PostSerializer):
     hashtags = HashtagListSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Post
+        fields = (
+            "id",
+            "author",
+            "text",
+            "media",
+            "likes_count",
+            "is_liked",
+            "comments_count",
+            "hashtags",
+            "published_at",
+        )
+        read_only_fields = (
+            "author",
+            "likes_count",
+            "is_liked",
+            "comments_count",
+            "published_at",
+        )
 
 
 class LikeSerializer(serializers.ModelSerializer):
