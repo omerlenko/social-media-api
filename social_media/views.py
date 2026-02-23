@@ -194,7 +194,9 @@ class PostViewSet(viewsets.ModelViewSet):
             .values_list("id", flat=True)
         )
         authors_ids = [user.id] + list(following)
-        queryset = queryset.filter(author__id__in=authors_ids)
+        queryset = queryset.filter(status=Post.Status.PUBLISHED).filter(
+            author__id__in=authors_ids
+        )
 
         # hashtag filtering
         hashtags = self.request.query_params.get("hashtags")
