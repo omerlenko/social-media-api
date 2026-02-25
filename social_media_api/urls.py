@@ -20,12 +20,34 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 urlpatterns = (
     [
         path("admin/", admin.site.urls),
         path(
             "api/social_media/", include("social_media.urls", namespace="social_media")
+        ),
+        path(
+            "api/schema/",
+            SpectacularAPIView.as_view(authentication_classes=[]),
+            name="schema",
+        ),
+        path(
+            "api/docs/swagger/",
+            SpectacularSwaggerView.as_view(
+                url_name="schema", authentication_classes=[]
+            ),
+            name="swagger-ui",
+        ),
+        path(
+            "api/docs/redoc/",
+            SpectacularRedocView.as_view(url_name="schema", authentication_classes=[]),
+            name="redoc",
         ),
     ]
     + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
