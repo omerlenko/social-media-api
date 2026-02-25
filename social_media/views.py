@@ -1,6 +1,15 @@
 from django.contrib.auth import get_user_model
 from django.db.models import Exists, OuterRef
 from django.db.models.aggregates import Count
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiResponse,
+    extend_schema_view,
+    OpenApiParameter,
+    OpenApiExample,
+    OpenApiRequest,
+)
 from rest_framework import viewsets, generics, status, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotFound
@@ -25,14 +34,43 @@ from social_media.serializers import (
     PostReadSerializer,
     LikeSerializer,
     CommentSerializer,
+    ProfileDetailSerializer,
 )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Register user",
+        request=UserSerializer,
+        responses=UserSerializer,
+        tags=["Auth"],
+    ),
+)
 class CreateUserView(generics.CreateAPIView):
     serializer_class = UserSerializer
     permission_classes = (AllowAny,)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get own user details",
+        description="Returns own user details.",
+        responses=UserSerializer,
+        tags=["Me"],
+    ),
+    patch=extend_schema(
+        summary="Partially update your user details",
+        request=UserUpdateSerializer,
+        responses=UserUpdateSerializer,
+        tags=["Me"],
+    ),
+    put=extend_schema(
+        summary="Update your user details",
+        request=UserUpdateSerializer,
+        responses=UserUpdateSerializer,
+        tags=["Me"],
+    ),
+)
 class ManageUserView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
     permission_classes = (IsAuthenticated,)
@@ -46,6 +84,29 @@ class ManageUserView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List users",
+        description="Returns users with optional username search.",
+        parameters=[
+            OpenApiParameter(
+                name="username",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive partial username search",
+            ),
+        ],
+        responses=UserListSerializer(many=True),
+        tags=["Users"],
+    ),
+    retrieve=extend_schema(
+        summary="Get user details",
+        description="Returns user profile and follow stats.",
+        responses=UserDetailSerializer,
+        tags=["Users"],
+    ),
+)
 class UserViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -81,6 +142,48 @@ class UserViewSet(
 
         return queryset.distinct()
 
+    @extend_schema(
+        methods=["POST"],
+        summary="Follow a user",
+        description="Creates a follow relationship to the target user.",
+        request=None,
+        responses={
+            201: OpenApiResponse(
+                response=FollowDetailSerializer,
+                examples=[
+                    OpenApiExample(
+                        "Follow user response (created)",
+                        value={
+                            "follower": "alice",
+                            "followee": "bob",
+                        },
+                    )
+                ],
+            ),
+            200: OpenApiResponse(
+                response=FollowDetailSerializer,
+                examples=[
+                    OpenApiExample(
+                        "Follow user response (already following)",
+                        value={
+                            "follower": "alice",
+                            "followee": "bob",
+                        },
+                    )
+                ],
+            ),
+            400: OpenApiResponse(description="Cannot follow yourself"),
+        },
+        tags=["Follows"],
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="Unfollow a user",
+        description="Removes follow relationship to the target user.",
+        request=None,
+        responses={204: OpenApiResponse(description="Unfollowed")},
+        tags=["Follows"],
+    )
     @action(detail=True, methods=["POST", "DELETE"])
     def follow(self, request, *args, **kwargs):
         user = self.get_object()
@@ -103,6 +206,11 @@ class UserViewSet(
             Follow.objects.filter(follower=request.user, followee=user).delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        summary="List followers of a user",
+        responses=UserListSerializer(many=True),
+        tags=["Follows"],
+    )
     @action(detail=True, methods=["GET"])
     def followers(self, request, *args, **kwargs):
         user = self.get_object()
@@ -117,6 +225,11 @@ class UserViewSet(
         )
         return Response(serializer.data, status=HTTP_200_OK)
 
+    @extend_schema(
+        summary="List users followed by this user",
+        responses=UserListSerializer(many=True),
+        tags=["Follows"],
+    )
     @action(detail=True, methods=["GET"])
     def following(self, request, *args, **kwargs):
         user = self.get_object()
@@ -136,6 +249,19 @@ class LogoutView(APIView):
     permission_classes = (IsAuthenticated,)
     serializer_class = LogoutSerializer
 
+    @extend_schema(
+        summary="Log out current user",
+        description="Blacklists the provided refresh token.",
+        request=LogoutSerializer,
+        responses={
+            205: OpenApiResponse(description="Successfully logged out"),
+            400: OpenApiResponse(description="Invalid or expired token"),
+            401: OpenApiResponse(
+                description="Authentication credentials were not provided or invalid"
+            ),
+        },
+        tags=["Auth"],
+    )
     def post(self, request):
         serializer = self.serializer_class(
             data=request.data, context={"request": request}
@@ -145,6 +271,14 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_205_RESET_CONTENT)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Create own profile",
+        request=ProfileSerializer,
+        responses=ProfileSerializer,
+        tags=["Profile"],
+    ),
+)
 class CreateProfileView(generics.CreateAPIView):
     queryset = Profile.objects.all()
     serializer_class = ProfileSerializer
@@ -157,10 +291,35 @@ class CreateProfileView(generics.CreateAPIView):
         serializer.save(user=self.request.user)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get own profile details",
+        description="Returns own profile details.",
+        responses=ProfileDetailSerializer,
+        tags=["Profile"],
+    ),
+    patch=extend_schema(
+        summary="Partially update your profile details",
+        request=ProfileSerializer,
+        responses=ProfileSerializer,
+        tags=["Profile"],
+    ),
+    put=extend_schema(
+        summary="Update your profile details",
+        request=ProfileSerializer,
+        responses=ProfileSerializer,
+        tags=["Profile"],
+    ),
+)
 class ManageProfileView(generics.RetrieveUpdateAPIView):
     queryset = Profile.objects.all()
     serializer_class = ProfileSerializer
     permission_classes = (IsAuthenticated,)
+
+    def get_serializer_class(self):
+        if self.request.method == "GET":
+            return ProfileDetailSerializer
+        return ProfileSerializer
 
     def get_object(self):
         try:
@@ -170,6 +329,150 @@ class ManageProfileView(generics.RetrieveUpdateAPIView):
         return profile
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="Feed posts",
+        description=(
+            "Returns published posts from the current user and users they follow. "
+            "Can be filtered by comma-separated hashtags."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="hashtags",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Comma-separated hashtags, e.g. 'python,django'",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=PostReadSerializer(many=True),
+                examples=[
+                    OpenApiExample(
+                        "Feed response",
+                        value=[
+                            {
+                                "id": 105,
+                                "author": "bob",
+                                "text": "Today I added hashtag filtering to the posts feed.",
+                                "media": [
+                                    {
+                                        "id": 14,
+                                        "file": "http://127.0.0.1:8000/media/uploads/post_media/sample-feed-1.png",
+                                    }
+                                ],
+                                "likes_count": 4,
+                                "is_liked": True,
+                                "comments_count": 2,
+                                "hashtags": [
+                                    {"id": 2, "text": "#django"},
+                                    {"id": 4, "text": "#backend"},
+                                ],
+                                "published_at": "2026-02-25T11:40:00Z",
+                            },
+                            {
+                                "id": 104,
+                                "author": "alice",
+                                "text": "Clean serializer validation beats debugging later.",
+                                "media": [],
+                                "likes_count": 1,
+                                "is_liked": False,
+                                "comments_count": 0,
+                                "hashtags": [
+                                    {"id": 1, "text": "#python"},
+                                    {"id": 3, "text": "#api"},
+                                ],
+                                "published_at": "2026-02-25T10:15:00Z",
+                            },
+                        ],
+                    )
+                ],
+            )
+        },
+        tags=["Posts"],
+    ),
+    retrieve=extend_schema(
+        summary="Get post details",
+        description="Returns post + media, likes and comments stats, hashtags.",
+        responses=PostReadSerializer,
+        tags=["Posts"],
+    ),
+    create=extend_schema(
+        summary="Create a post",
+        description="Creates a post immediately or schedules it if 'scheduled_for' is provided",
+        request=OpenApiRequest(
+            request=PostSerializer,
+            examples=[
+                OpenApiExample(
+                    "Create post request (published immediately)",
+                    summary="No scheduled_for provided",
+                    value={
+                        "text": "Just finished building my first DRF custom action. Feels great!",
+                        "hashtags": [
+                            {"text": "python"},
+                            {"text": "#django"},
+                            {"text": "api"},
+                        ],
+                    },
+                ),
+                OpenApiExample(
+                    "Create post request (scheduled)",
+                    summary="Scheduled post",
+                    value={
+                        "text": "Scheduled post example: this will be published later by Celery.",
+                        "scheduled_for": "2026-03-01T10:30:00Z",
+                        "hashtags": [
+                            {"text": "backend"},
+                            {"text": "webdev"},
+                        ],
+                    },
+                ),
+            ],
+        ),
+        responses={
+            201: OpenApiResponse(
+                response=PostSerializer,
+                examples=[
+                    OpenApiExample(
+                        "Create post response (scheduled)",
+                        value={
+                            "id": 101,
+                            "author": "alice",
+                            "text": "Scheduled post example: this will be published later by Celery.",
+                            "media": [],
+                            "likes_count": 0,
+                            "is_liked": False,
+                            "comments_count": 0,
+                            "hashtags": [
+                                {"id": 4, "text": "backend"},
+                                {"id": 5, "text": "webdev"},
+                            ],
+                            "status": "SCH",
+                            "scheduled_for": "2026-03-01T10:30:00Z",
+                            "created_at": "2026-02-25T12:00:00Z",
+                            "published_at": None,
+                        },
+                    )
+                ],
+            )
+        },
+        tags=["Posts"],
+    ),
+    partial_update=extend_schema(
+        summary="Partially update your post",
+        tags=["Posts"],
+    ),
+    update=extend_schema(
+        summary="Update your post",
+        tags=["Posts"],
+    ),
+    destroy=extend_schema(
+        summary="Delete your post",
+        responses={204: OpenApiResponse(description="Deleted")},
+        tags=["Posts"],
+    ),
+)
 class PostViewSet(viewsets.ModelViewSet):
     queryset = Post.objects.select_related("author").prefetch_related(
         "media", "hashtags"
@@ -232,6 +535,13 @@ class PostViewSet(viewsets.ModelViewSet):
 
         return self.serializer_class
 
+    @extend_schema(
+        summary="Upload media to a post",
+        description="Upload one or more image files to your own post.",
+        request=PostMediaSerializer,
+        responses={201: PostMediaSerializer(many=True)},
+        tags=["Posts"],
+    )
     @action(detail=True, methods=["POST"], serializer_class=PostMediaSerializer)
     def media(self, request, *args, **kwargs):
         post = self.get_object()
@@ -254,6 +564,25 @@ class PostViewSet(viewsets.ModelViewSet):
         )
         return Response(serializer.data, status=HTTP_201_CREATED)
 
+    @extend_schema(
+        methods=["POST"],
+        summary="Like a post",
+        description="Creates a like relationship to the target post.",
+        request=None,
+        responses={
+            201: LikeSerializer,
+            200: LikeSerializer,  # already liked
+        },
+        tags=["Likes"],
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="Unlike a post",
+        description="Removes like relationship to the target post.",
+        request=None,
+        responses={204: OpenApiResponse(description="Unliked")},
+        tags=["Likes"],
+    )
     @action(
         detail=True, methods=["POST", "DELETE"], permission_classes=(IsAuthenticated,)
     )
@@ -275,6 +604,24 @@ class PostViewSet(viewsets.ModelViewSet):
             Like.objects.filter(user=self.request.user, post=post).delete()
             return Response(status=HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        summary="List posts liked by current user",
+        description=(
+            "Returns liked posts by this user. "
+            "Can be filtered by comma-separated hashtags."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="hashtags",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Comma-separated hashtags, e.g. 'python,django'",
+            ),
+        ],
+        responses=PostReadSerializer(many=True),
+        tags=["Posts"],
+    )
     @action(detail=False, methods=["GET"])
     def liked(self, request, *args, **kwargs):
         user = request.user
@@ -286,6 +633,41 @@ class PostViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.data, status=HTTP_200_OK)
 
+    @extend_schema(
+        methods=["GET"],
+        summary="List comments for a post",
+        responses=CommentSerializer(many=True),
+        tags=["Comments"],
+    )
+    @extend_schema(
+        methods=["POST"],
+        summary="Create comment for a post",
+        request=OpenApiRequest(
+            request=CommentSerializer,
+            examples=[
+                OpenApiExample(
+                    "Create comment request",
+                    value={"text": "Nice post, the hashtag filtering works great."},
+                )
+            ],
+        ),
+        responses={
+            201: OpenApiResponse(
+                response=CommentSerializer,
+                examples=[
+                    OpenApiExample(
+                        "Create comment response",
+                        value={
+                            "id": 12,
+                            "author": 3,
+                            "text": "Nice post, the hashtag filtering works great.",
+                        },
+                    )
+                ],
+            )
+        },
+        tags=["Comments"],
+    )
     @action(
         detail=True,
         methods=["GET", "POST"],
@@ -312,6 +694,30 @@ class PostViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    retrieve=extend_schema(
+        summary="Get comment details",
+        responses=CommentSerializer,
+        tags=["Comments"],
+    ),
+    partial_update=extend_schema(
+        summary="Partially update your comment",
+        request=CommentSerializer,
+        responses=CommentSerializer,
+        tags=["Comments"],
+    ),
+    update=extend_schema(
+        summary="Update your comment",
+        request=CommentSerializer,
+        responses=CommentSerializer,
+        tags=["Comments"],
+    ),
+    destroy=extend_schema(
+        summary="Delete your comment",
+        responses={204: OpenApiResponse(description="Deleted")},
+        tags=["Comments"],
+    ),
+)
 class CommentViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
