@@ -220,6 +220,14 @@ class UserViewSet(
             .filter(following__followee=user)
             .distinct()
         )
+
+        page = self.paginate_queryset(followers)
+        if page is not None:
+            serializer = UserListSerializer(
+                followers, many=True, context={"request": request}
+            )
+            return self.get_paginated_response(serializer.data)
+
         serializer = UserListSerializer(
             followers, many=True, context={"request": request}
         )
@@ -239,6 +247,14 @@ class UserViewSet(
             .filter(followers__follower=user)
             .distinct()
         )
+
+        page = self.paginate_queryset(following)
+        if page is not None:
+            serializer = UserListSerializer(
+                following, many=True, context={"request": request}
+            )
+            return self.get_paginated_response(serializer.data)
+
         serializer = UserListSerializer(
             following, many=True, context={"request": request}
         )
@@ -625,8 +641,15 @@ class PostViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["GET"])
     def liked(self, request, *args, **kwargs):
         user = request.user
-
         liked_posts = self.get_queryset().filter(likes__user=user).distinct()
+
+        page = self.paginate_queryset(liked_posts)
+        if page is not None:
+            serializer = PostReadSerializer(
+                page, many=True, context={"request": request}
+            )
+            return self.get_paginated_response(serializer.data)
+
         serializer = PostReadSerializer(
             liked_posts, many=True, context={"request": request}
         )
@@ -682,6 +705,12 @@ class PostViewSet(viewsets.ModelViewSet):
                 .filter(post=post)
                 .order_by("-created_at")
             )
+
+            page = self.paginate_queryset(comments)
+            if page is not None:
+                serializer = self.get_serializer(comments, many=True)
+                return self.get_paginated_response(serializer.data)
+
             serializer = self.get_serializer(comments, many=True)
 
             return Response(serializer.data, status=status.HTTP_200_OK)
