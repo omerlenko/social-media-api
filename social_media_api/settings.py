@@ -167,6 +167,7 @@ CELERY_BEAT_SCHEDULE = {
     "publish_scheduled_posts": {
         "task": "social_media.tasks.publish_scheduled_posts",
         "schedule": timedelta(seconds=30),
+        "relative": True,
     },
 }
 
