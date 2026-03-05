@@ -3,4 +3,6 @@
 .idea
 db.sqlite3
 media/
+celerybeat/
 celerybeat-schedule*
+.env
